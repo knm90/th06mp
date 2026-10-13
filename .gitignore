@@ -1,0 +1,6 @@
+# The game is not part of this repository.
+Touhou6/
+th06nc.exe
+*.log
+re/.cache/
+__pycache__/

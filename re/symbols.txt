@@ -1,0 +1,94 @@
+# th06nc.exe, link timestamp 0x6A9E3A91 (2026-09-07), image size 0xC6B000.
+# RVA  name  # notes.  Read by re/disasm.py and re/index.py.
+
+# --- main loop / chains -------------------------------------------------
+0003BE80 Chain_RunCalc              # walks calc chain; elem: +0 prio(s16) +8 cb +10 added +18 deleted +20 prev +28 next +38 arg
+0003BF70 Chain_RunDraw
+0003C330 Frame_Present              # flip + fps counter
+000126E0 Chain_Cut
+004F1440 g_CalcChainHead
+004F1400 g_DrawChainHead
+00079C70 Supervisor_OnUpdate        # (Supervisor*) chain callback; state machine at +0x428/+0x42C
+0007A510 Supervisor_RegisterChain
+00C21970 g_Supervisor
+00C21D9C g_Supervisor.curState      # 3 = stage-to-stage reload, skips player anm load
+00C21DA4 g_Supervisor.cfg           # 0x2C bytes, th06.cfg
+00C21DFC g_Supervisor.env           # 0xC bytes, th06.env
+
+# --- input --------------------------------------------------------------
+00012BE0 GetInput                   # () -> u32; only caller is Supervisor_OnUpdate at 79D32
+00A6EC60 g_CurFrameInput            # u32: 1 shot, 2 bomb, 4 focus, 8 menu, 10 up, 20 down, 40 left, 80 right, 100 skip, 8000 fast-forward
+00A6EC64 g_LastFrameInput
+
+# --- player -------------------------------------------------------------
+004FF3A0 g_Player                   # size 0xA2B8
+00067DC0 Player_RegisterChain       # () -> 0 ok; zeroes g_Player, allocs 4 chain elems, runs AddedCallback
+00068160 Player_AddedCallback       # (Player*) loads player0X.anm unless curState==3, inits fields
+000687F0 Player_DeletedCallback
+00068820 Player_OnUpdate            # (Player*) this-clean; reads g_CurFrameInput/g_LastFrameInput
+00069D00 Player_CalcDamageToEnemy   # (Player*, vec3 *pos, vec3 *size, u8 *flag) -> damage; this-clean
+0006A130 Player_OnDrawHighPrio      # (Player*) prio 7
+0006A210 Player_OnDrawLowPrio       # (Player*) prio 9
+0006A430 Player_OnDraw3             # (Player*) prio 11
+0006A580 Player_FireSingleBullet
+0006A8C0 Player_BombOverlap         # (Player*, f32, f32, f32, f32) -> bool; 16 bomb projectiles at +0x7754
+0006A980 Player_CalcKillBoxCollision # (Player*, vec3 *center, vec3 *size, u8 circle) -> 0 none, 1 hit, 2 bomb-cancelled; this-clean
+0006ABA0 Player_CalcLaserHitbox     # (unused, vec3*, vec3*, vec3*, f32 angle, u8 graze); HARD-WIRED to g_Player
+003DC260 g_BombFuncTable            # [char*2+shot] {calc, draw}
+003DE3B0 g_CharacterData            # [char*2+shot] {4 speeds, fire, fireFocus}, 0x20 each
+
+# Player fields (offsets from Player*)
+#   +7730 positionCenter (vec3)     +773C respawnTimer        +7740 positionOfLastEnemyHit (vec3)
+#   +774C hit radius (1.25)         +7754 bombProjectiles[16] +7854/+7858 invulnerability timer
+#   +7860 characterData             +7898 playerState (0 alive, 1 spawning, 2 dead, 3 invulnerable)
+#   +78A8 chain elems (calc, draw x3) +78C8 playerSprite (AnmVm; color at +EC = +79B4)
+#   +9EC8 bombInfo.isInUse          +9ED0 bombInfo.calc       +9ED8 bombInfo.draw
+#   +9F34 previousFrameInput        +A298 bulletGracePeriod   bullets[80]: stride 0x170, state at +420
+
+00C21E60 g_KeyTable                 # u8[256] key code (DIK) -> key-state index; P1 has two hard-coded layouts:
+                                    #   arrows/numpad + Z X LShift, and W A S D + J (shot) K (bomb) L/Space (focus)
+
+# --- other managers -----------------------------------------------------
+00010870 BulletManager_OnUpdate     # graze is inlined against g_Player; calls KillBox @11418, BombOverlap @1113B, Laser @11883
+                                    # KillBox is only called for bullets whose isGrazed flag is already set
+003EC2A0 g_BulletManager            # size 0xF5010
+003EC2A8 g_BulletManager.bullets    # [640], stride 0x620: +8 velocity, +30 pos, +44 state (1 = flying, 5 = dying),
+                                    #   +150 sprite data ptr, +5F4 hitbox size, +618 isGrazed
+0030CECC k_GrazeMargin              # float 20.0
+000373B0 EnemyManager_OnUpdate      # RunEcl @377AE, KillBox @37A6C, CalcDamageToEnemy @37AB0
+00042980 ItemManager_OnUpdate       # collection + homing inlined against g_Player (state, pos, grab box +A29C/+A2A8)
+00BAF0D8 g_ItemManager.items        # [1024], stride 0x160: +0 inUse, +8 timer, +C state (1 = homing), +10 pos,
+                                    #   +1C velocity, +34 type (0-6); half size 8; homing when player.y < 128
+000426E0 ItemManager_SpawnItem
+00022060 EclManager_RunEcl          # (EclManager*, Enemy*); 196 direct reads of g_Player.positionCenter
+00A6EB70 g_EclManager
+0003A9C0 GameManager_AddedCallback  # calls Player_RegisterChain @3B1B1
+0003B6A0 GameManager_CutChains
+0002B0D0 EffectManager_SpawnParticles
+000020B0 AnmManager_LoadAnm         # (unused, slot, path, indexOffset) -> 0 ok; releases the slot first
+00002800 AnmManager_ReleaseAnm      # (AnmManager*, slot)
+00002980 AnmManager_SetActiveSprite # (AnmManager*, AnmVm*, spriteIdx)
+# AnmManager layout: +8 files[128] (ptr), +408 indexOffset[128] (u32), +608 sprites[2048] (0x40 each),
+#   +20620 texture handles[slot] (2 x i32: normal, 4k), +20F90 spriteOffsets[2048] (u32, by script index),
+#   +23090 scripts[2048] (ptr). ExecuteScript picks sprites as spriteOffsets[vm.anmFileIndex (+38)] + arg.
+# In-stage index use: 100 enemies, 200 etama3, 29A etama3_2, 2BA etama4, 2D3 effects, 320 stage bg,
+#   420 player (slot 5, both characters), 4C0-4C9 faces, 620 front, 648 loading/msgframe; 4D0-61F is free.
+000069B0 AnmManager_ExecuteScript   # (AnmManager*, AnmVm*)
+00001DA0 AnmVm_Initialize
+00A6E9B0 g_AnmManager               # pointer
+
+# GameManager fields
+004F1E60 g_GameManager.deaths
+004F1E64 g_GameManager.bombsUsed
+004F1E80 g_GameManager.character    # 0 Reimu, 1 Marisa
+004F1E81 g_GameManager.shotType
+004F1E88 g_GameManager.currentPower # u16
+004F2798 g_GameManager.score        # u64
+004F278C g_GameManager.isInReplay
+004F27B1 g_GameManager.isGameOver
+004F27B9 g_GameManager.isTimeStopped
+004FF0CC g_GameManager.grazeInStage
+004FF0D0 g_GameManager.grazeTotal
+004FF0F0 g_GameManager.livesRemaining
+004FF0F1 g_GameManager.bombsRemaining
+00A6EC18 g_Gui.flags
