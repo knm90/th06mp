@@ -62,6 +62,14 @@
 000426E0 ItemManager_SpawnItem
 00022060 EclManager_RunEcl          # (EclManager*, Enemy*); 196 direct reads of g_Player.positionCenter
 00A6EB70 g_EclManager
+00A6EBD0 g_Gui                      # +38 impl (GuiImpl*, 0x4228 bytes), +48 flags
+0003CC50 Gui_OnUpdate               # calc prio 12; -> 3FCA0, which runs the focus effect from g_Player.isFocus (+785C):
+                                    #   impl+120 / +240 = two AnmVm, scripts 641 / 642, interrupt 1 on release,
+                                    #   position copied from g_Player unless it is spawning
+0003CC80 Gui_OnDrawLow              # draw prio 4
+0003CCA0 Gui_OnDrawMid              # draw prio 8
+0003CD20 Gui_OnDrawTop              # draw prio 15; draws the two focus sprites @3D011
+000067F0 AnmManager_DrawVm          # (unused, AnmVm*, bool)
 0003A9C0 GameManager_AddedCallback  # calls Player_RegisterChain @3B1B1
 0003B6A0 GameManager_CutChains
 0002B0D0 EffectManager_SpawnParticles

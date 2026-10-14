@@ -22,6 +22,9 @@
 #define RVA_Player_CalcLaserHitbox   0x6ABA0
 
 #define RVA_AnmManager_LoadAnm       0x20B0 // (unused, int slot, const char *path, int index_offset) -> 0 ok
+#define RVA_AnmVm_Initialize         0x1DA0 // (AnmVm *)
+#define RVA_AnmManager_ExecuteScript 0x69B0 // (AnmManager *, AnmVm *); does nothing while the vm has no script
+#define RVA_AnmManager_DrawVm        0x67F0 // (unused, AnmVm *, bool); skips a vm that is not visible
 
 // --- patch sites -------------------------------------------------------------
 // `call rel32` instructions
@@ -33,6 +36,7 @@
 #define SITE_BombOverlap       0x1113B // BulletManager_OnUpdate
 #define SITE_KillBox_Bullet    0x11418 // BulletManager_OnUpdate
 #define SITE_LaserHitbox       0x11883 // BulletManager_OnUpdate
+#define SITE_DrawFocusVm       0x3D011 // Gui top-layer draw, once per focus-effect sprite
 // `lea reg, [rip+rel32]` instructions in Player_RegisterChain that load the
 // chain callbacks
 #define SITE_Lea_OnUpdate       0x67E1E
@@ -82,6 +86,7 @@
 #define P_HIT_RADIUS         0x774C // float
 #define P_INVULN_TIMER_PREV  0x7854 // i32, -999 when reset
 #define P_INVULN_TIMER       0x7858 // i32
+#define P_IS_FOCUSED         0x785C // u8, set by Player_OnUpdate while the focus button is held
 #define P_STATE              0x7898 // u8
 #define P_CHAIN_ELEMS        0x78A8 // ChainElem*[4]
 #define P_SPRITE_COLOR       0x79B4 // u32 ARGB
@@ -133,6 +138,25 @@ enum {
 // 0x520-0x5BF are unused by the game during a stage.
 #define ANM_SLOT_ALT_PLAYER     100
 #define ANM_OFFSET_ALT_PLAYER   0x520
+
+// --- AnmVm (one animated sprite) -------------------------------------------------
+#define ANMVM_SIZE            0x120
+#define VM_SCRIPT_INDEX       0x38 // i16
+#define VM_PENDING_INTERRUPT  0x8A // i16
+#define VM_TIMER_PREV         0xB4 // i32
+#define VM_TIMER              0xB8 // i32
+#define VM_FLAGS              0xC4 // u32, bit 0 = visible
+#define VM_POS                0xC8 // float[3]
+#define VM_SCRIPT_START       0xF0 // void *
+#define VM_SCRIPT_CUR         0xF8 // void *, NULL = not running
+
+// --- focus effect ----------------------------------------------------------------
+// The ring shown around a focused player is not Player code: the Gui keeps two
+// sprites for it, runs them from g_Player's focus flag and position in its
+// update, and draws them in its top-layer draw.
+#define RVA_g_GuiImpl         0xA6EC08 // GuiImpl *
+#define GUI_FOCUS_VMS         0x120    // AnmVm[2]
+#define ANM_SCRIPT_FOCUS      0x641    // and 0x642
 
 // --- enemy bullets (g_BulletManager.bullets) -----------------------------------
 #define RVA_g_Bullets      0x3EC2A8

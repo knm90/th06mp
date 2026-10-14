@@ -30,6 +30,8 @@
 static uint8_t *g_base;
 static uint8_t *g_p1;
 static uint8_t *g_extra[MAX_PLAYERS - 1];
+// Each extra player's copy of the Gui's two focus-effect sprites.
+static _Alignas(16) uint8_t g_focus_vm[MAX_PLAYERS - 1][2][ANMVM_SIZE];
 // Extra players alive in the current stage; 0 outside co-op (menus, replays).
 static int g_extra_count;
 static uint32_t g_in_cur[MAX_PLAYERS];
@@ -64,6 +66,9 @@ static uint32_t (*orig_bomb_overlap)(void *player, float a, float b, float c, fl
 static int (*orig_damage)(void *player, float *pos, float *size, uint8_t *hit_by_bomb);
 static int (*orig_laser)(void *unused, float *center, float *size, float *origin, float angle, uint32_t can_graze);
 static int (*orig_load_anm)(void *unused, int slot, const char *path, int index_offset);
+static void (*orig_vm_init)(void *vm);
+static int (*orig_execute_script)(void *mgr, void *vm);
+static void (*orig_draw_vm)(void *unused, void *vm, uint32_t flag);
 
 // --- per-player character and shot type ------------------------------------------
 //
@@ -465,6 +470,7 @@ static int hook_register_chain(void)
     }
     memset(g_in_cur, 0, sizeof(g_in_cur));
     memset(g_in_last, 0, sizeof(g_in_last));
+    memset(g_focus_vm, 0, sizeof(g_focus_vm));
     g_extra_count = extras;
     for (int i = 0; i < g_cfg.players; i++)
         log_msg("stage start: P%d = %s %c", i + 1, g_char_of[i] ? "Marisa" : "Reimu", g_shot_of[i] ? 'B' : 'A');
@@ -613,6 +619,43 @@ static void graze_pass(void)
     }
 }
 
+// What the Gui's update does for P1's focus effect, for one extra player: start
+// both sprites when focus is pressed, send them their fade-out interrupt once
+// it is released, and keep them on the player.
+static void focus_effect(uint8_t (*vm)[ANMVM_SIZE], const uint8_t *p)
+{
+    uint8_t *mgr = *GAME(uint8_t *, RVA_g_AnmManager);
+    bool focused = p[P_IS_FOCUSED], running = *(void **)(vm[0] + VM_SCRIPT_CUR) != NULL;
+    for (int k = 0; k < 2; k++) {
+        uint8_t *v = vm[k];
+        if (focused && !running) {
+            void *script = ((void **)(mgr + MGR_SCRIPTS))[ANM_SCRIPT_FOCUS + k];
+            *(int16_t *)(v + VM_SCRIPT_INDEX) = ANM_SCRIPT_FOCUS + k;
+            orig_vm_init(v);
+            *(uint32_t *)(v + VM_FLAGS) &= ~1u; // hidden until the script shows it
+            *(void **)(v + VM_SCRIPT_START) = script;
+            *(void **)(v + VM_SCRIPT_CUR) = script;
+            *(int32_t *)(v + VM_TIMER) = 0;
+            *(int32_t *)(v + VM_TIMER_PREV) = -999;
+        } else if (!focused && running) {
+            *(int16_t *)(v + VM_PENDING_INTERRUPT) = 1;
+        }
+        orig_execute_script(mgr, v);
+        if (p[P_STATE] != PLAYER_STATE_SPAWNING)
+            memcpy(v + VM_POS, p + P_POS, 3 * sizeof(float));
+    }
+}
+
+// The Gui draws its two focus sprites with one call each; follow each with the
+// extra players' copy of the same sprite.
+static void hook_draw_focus_vm(void *unused, uint8_t *vm, uint32_t flag)
+{
+    orig_draw_vm(unused, vm, flag);
+    size_t k = (size_t)(vm - *GAME(uint8_t *, RVA_g_GuiImpl) - GUI_FOCUS_VMS) / ANMVM_SIZE;
+    for (int i = 0; i < g_extra_count && k < 2; i++)
+        orig_draw_vm(unused, g_focus_vm[i][k], flag);
+}
+
 static int hook_update(void *p)
 {
     // P1's update clears its homing target, so grab it first for the others.
@@ -635,6 +678,7 @@ static int hook_update(void *p)
         SavedContext ctx = enter_player(i + 1);
         orig_update(e);
         leave_player(ctx);
+        focus_effect(g_focus_vm[i], e);
     }
     *cur = saved_cur;
     *last = saved_last;
@@ -834,6 +878,9 @@ bool coop_install(uint8_t *base)
     orig_damage = (void *)(base + RVA_Player_CalcDamageToEnemy);
     orig_laser = (void *)(base + RVA_Player_CalcLaserHitbox);
     orig_load_anm = (void *)(base + RVA_AnmManager_LoadAnm);
+    orig_vm_init = (void *)(base + RVA_AnmVm_Initialize);
+    orig_execute_script = (void *)(base + RVA_AnmManager_ExecuteScript);
+    orig_draw_vm = (void *)(base + RVA_AnmManager_DrawVm);
 
     const size_t slot = (PLAYER_SIZE + 0xFFF) & ~(size_t)0xFFF;
     uint8_t *mem = VirtualAlloc(NULL, slot * (MAX_PLAYERS - 1), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
@@ -859,6 +906,7 @@ bool coop_install(uint8_t *base)
         {PATCH_CALL, SITE_DamageToEnemy, RVA_Player_CalcDamageToEnemy, hook_damage, "CalcDamageToEnemy"},
         {PATCH_CALL, SITE_LaserHitbox, RVA_Player_CalcLaserHitbox, hook_laser, "CalcLaserHitbox"},
         {PATCH_CALL, SITE_RunEcl, RVA_EclManager_RunEcl, hook_run_ecl, "EclManager_RunEcl"},
+        {PATCH_CALL, SITE_DrawFocusVm, RVA_AnmManager_DrawVm, hook_draw_focus_vm, "Gui focus effect draw"},
     };
     return hook_apply(base, patches, sizeof(patches) / sizeof(patches[0]));
 }

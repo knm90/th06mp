@@ -61,6 +61,7 @@ int wmain(int argc, wchar_t **argv)
         {SITE_KillBox_Enemy, 1, 5},  {SITE_DamageToEnemy, 1, 5},  {SITE_BombOverlap, 1, 5},
         {SITE_KillBox_Bullet, 1, 5}, {SITE_LaserHitbox, 1, 5},    {SITE_Lea_OnUpdate, 3, 7},
         {SITE_Lea_OnDrawHighPrio, 3, 7}, {SITE_Lea_OnDrawLowPrio, 3, 7}, {SITE_Lea_OnDraw3, 3, 7},
+        {SITE_DrawFocusVm, 1, 5},
     };
     uint8_t *self = (uint8_t *)GetModuleHandleW(NULL);
     const IMAGE_NT_HEADERS64 *nt = (const IMAGE_NT_HEADERS64 *)(self + ((const IMAGE_DOS_HEADER *)self)->e_lfanew);
